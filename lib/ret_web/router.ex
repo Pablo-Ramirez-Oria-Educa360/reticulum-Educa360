@@ -156,6 +156,8 @@ defmodule RetWeb.Router do
       resources "/media/search", Api.V1.MediaSearchController, only: [:index]
       resources "/avatars", Api.V1.AvatarController, only: [:show]
       resources "/scenes", Api.V1.SceneController, only: [:show]
+      get "/composer/catalog", Api.V1.ComposerCatalogController, :index
+      get "/composer/catalog/capabilities", Api.V1.ComposerCatalogController, :capabilities
     end
 
     scope "/v1", as: :api_v1 do
@@ -183,6 +185,9 @@ defmodule RetWeb.Router do
       resources "/accounts", Api.V1.AccountController, only: [:create, :delete]
       patch "/accounts", Api.V1.AccountController, :update
       resources "/accounts/search", Api.V1.AccountSearchController, only: [:create]
+      post "/composer/catalog/assets", Api.V1.ComposerCatalogController, :create_asset
+      post "/composer/catalog/items", Api.V1.ComposerCatalogController, :create_item
+      delete "/composer/catalog/items/:id", Api.V1.ComposerCatalogController, :delete_item
     end
   end
 

@@ -13,6 +13,8 @@ defmodule Ret.TestHelpers do
     Storage
   }
 
+  alias Ret.Composer.{Catalog, CatalogAsset, CatalogItem}
+
   def generate_temp_owned_file(account) do
     temp_file = generate_temp_file("test")
     {:ok, uuid} = Storage.store(%Plug.Upload{path: temp_file}, "text/plain", "secret")
@@ -185,6 +187,56 @@ defmodule Ret.TestHelpers do
 
   def create_model_owned_file(%{account: account}) do
     {:ok, model_owned_file: generate_temp_owned_file(account)}
+  end
+
+  def create_composer_model_owned_file(%Account{} = account) do
+    file_path = generate_temp_file("{\"asset\":\"composer-model\"}")
+    {:ok, uuid} = Storage.store(%Plug.Upload{path: file_path}, "model/gltf+json", "secret")
+    {:ok, owned_file} = Storage.promote(uuid, "secret", nil, account)
+    owned_file
+  end
+
+  def create_composer_thumbnail_owned_file(%Account{} = account) do
+    thumbnail_file = Path.expand("../fixtures/spoke-thumbnail.jpg", __DIR__)
+    generate_fixture_owned_file(account, thumbnail_file, "image/png")
+  end
+
+  def create_composer_catalog_asset(%Account{} = account, kind, %Ret.OwnedFile{} = owned_file, name) do
+    {:ok, asset} = Catalog.create_asset(account, owned_file, %{kind: kind, name: name})
+    asset
+  end
+
+  def create_composer_catalog_item(%Account{} = account, attrs \\ %{}) do
+    model_owned_file = create_composer_model_owned_file(account)
+    thumbnail_owned_file = create_composer_thumbnail_owned_file(account)
+
+    model_asset =
+      create_composer_catalog_asset(account, "model", model_owned_file, "Test Composer Model")
+
+    thumbnail_asset =
+      create_composer_catalog_asset(
+        account,
+        "thumbnail",
+        thumbnail_owned_file,
+        "Test Composer Thumbnail"
+      )
+
+    params =
+      Map.merge(
+        %{
+          part_key: "test_composer_item_#{System.unique_integer([:positive])}",
+          name: "Test Composer Item",
+          category: "accessory",
+          subcategory: "hat",
+          customizable: true,
+          conflict_group: "headwear",
+          sort_order: 10
+        },
+        attrs
+      )
+
+    {:ok, item} = Catalog.create_item(account, model_asset, thumbnail_asset, params)
+    %{item: Repo.preload(item, model_asset: [:owned_file], thumbnail_asset: [:owned_file])}
   end
 
   def create_project(%{
