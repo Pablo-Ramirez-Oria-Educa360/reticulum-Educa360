@@ -2,6 +2,9 @@ defmodule RetWeb.ComposerCatalogControllerTest do
   use RetWeb.ConnCase
   import Ret.TestHelpers
 
+  alias Ret.Composer.CatalogAsset
+  alias Ret.Repo
+
   setup [:create_account]
 
   test "catalog index returns empty contract when there are no items", %{conn: conn} do
@@ -95,6 +98,46 @@ defmodule RetWeb.ComposerCatalogControllerTest do
     assert item_response["item"]["id"] == "hair_none"
     assert item_response["item"]["url"] == nil
     assert item_response["item"]["thumbnail"] == nil
+  end
+
+  test "admin can update catalog items, keep existing files, and replace uploaded assets", %{conn: conn, account: account} do
+    admin_account = create_account("composer-admin-update", true)
+    %{item: item} = create_composer_catalog_item(account, %{part_key: "editable_hat"})
+    original_thumbnail_asset_id = item.thumbnail_asset.composer_catalog_asset_id
+    original_thumbnail_url = item.thumbnail_asset.owned_file |> Ret.OwnedFile.url_or_nil_for()
+    expected_model_url = item.model_asset.owned_file |> Ret.OwnedFile.url_or_nil_for()
+
+    replacement_thumbnail_owned_file = create_composer_thumbnail_owned_file(admin_account)
+
+    replacement_thumbnail_asset =
+      create_composer_catalog_asset(
+        admin_account,
+        "thumbnail",
+        replacement_thumbnail_owned_file,
+        "Replacement Thumbnail"
+      )
+
+    response =
+      conn
+      |> put_auth_header_for_account(admin_account)
+      |> patch(api_v1_composer_catalog_path(conn, :update_item, item.part_key), %{
+        item: %{
+          name: "Updated Hat",
+          category: "head",
+          customizable: false,
+          thumbnail_asset_id: replacement_thumbnail_asset.catalog_asset_sid
+        }
+      })
+      |> json_response(200)
+
+    assert response["item"]["id"] == "editable_hat"
+    assert response["item"]["name"] == "Updated Hat"
+    assert response["item"]["category"] == "head"
+    assert response["item"]["url"] == expected_model_url
+    assert response["item"]["thumbnail"] != original_thumbnail_url
+    assert response["item"]["conflictGroup"] == nil
+
+    refute Repo.get(CatalogAsset, original_thumbnail_asset_id)
   end
 
   test "admin can hard delete catalog items and they disappear from catalog", %{conn: conn, account: account} do

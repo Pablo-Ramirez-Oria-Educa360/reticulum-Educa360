@@ -60,6 +60,33 @@ defmodule RetWeb.Api.V1.ComposerCatalogController do
     end
   end
 
+  def update_item(conn, %{"id" => part_key, "item" => params}) do
+    account = Guardian.Plug.current_resource(conn)
+
+    case Catalog.item_by_part_key(part_key) do
+      nil ->
+        ControllerHelpers.render_error_json(conn, :not_found)
+
+      item ->
+        with {:ok, model_asset} <- fetch_updatable_asset(params, "model_asset_id"),
+             {:ok, thumbnail_asset} <- fetch_updatable_asset(params, "thumbnail_asset_id"),
+             {:ok, updated_item} <-
+               Catalog.update_item(
+                 account,
+                 item,
+                 model_asset,
+                 thumbnail_asset,
+                 normalize_item_params(params)
+               ) do
+          conn |> json(%{item: Catalog.serialize_item(updated_item)})
+        else
+          {:error, :asset_not_found} -> ControllerHelpers.render_error_json(conn, :not_found)
+          {:error, %Ecto.Changeset{} = changeset} -> ControllerHelpers.render_error_json(conn, changeset)
+          {:error, error} -> ControllerHelpers.render_error_json(conn, error)
+        end
+    end
+  end
+
   def delete_item(conn, %{"id" => part_key}) do
     case Catalog.item_by_part_key(part_key) do
       nil ->
@@ -87,9 +114,9 @@ defmodule RetWeb.Api.V1.ComposerCatalogController do
       "sortOrder"
     ])
     |> Enum.reduce(%{}, fn
-      {"id", value}, acc -> Map.put(acc, :part_key, value)
-      {"subCategory", value}, acc -> Map.put(acc, :subcategory, value)
-      {"conflictGroup", value}, acc -> Map.put(acc, :conflict_group, value)
+      {"id", value}, acc -> Map.put(acc, :part_key, normalize_optional_string(value))
+      {"subCategory", value}, acc -> Map.put(acc, :subcategory, normalize_optional_string(value))
+      {"conflictGroup", value}, acc -> Map.put(acc, :conflict_group, normalize_optional_string(value))
       {"sortOrder", value}, acc -> Map.put(acc, :sort_order, value)
       {key, value}, acc -> Map.put(acc, String.to_existing_atom(key), value)
     end)
@@ -106,4 +133,16 @@ defmodule RetWeb.Api.V1.ComposerCatalogController do
       asset -> {:ok, asset}
     end
   end
+
+  defp fetch_updatable_asset(params, key) do
+    if Map.has_key?(params, key) do
+      fetch_optional_asset(params[key])
+    else
+      {:ok, :keep}
+    end
+  end
+
+  defp normalize_optional_string(nil), do: nil
+  defp normalize_optional_string(""), do: nil
+  defp normalize_optional_string(value), do: value
 end

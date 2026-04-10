@@ -187,6 +187,7 @@ defmodule RetWeb.Router do
       resources "/accounts/search", Api.V1.AccountSearchController, only: [:create]
       post "/composer/catalog/assets", Api.V1.ComposerCatalogController, :create_asset
       post "/composer/catalog/items", Api.V1.ComposerCatalogController, :create_item
+      patch "/composer/catalog/items/:id", Api.V1.ComposerCatalogController, :update_item
       delete "/composer/catalog/items/:id", Api.V1.ComposerCatalogController, :delete_item
     end
   end

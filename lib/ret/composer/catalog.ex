@@ -41,9 +41,51 @@ defmodule Ret.Composer.Catalog do
         thumbnail_asset,
         attrs
       ) do
+    attrs = normalize_attrs_for_category(attrs)
+
     %CatalogItem{}
     |> CatalogItem.changeset(account, model_asset, thumbnail_asset, attrs)
     |> Repo.insert()
+  end
+
+  def update_item(
+        %Account{} = account,
+        %CatalogItem{} = item,
+        model_asset,
+        thumbnail_asset,
+        attrs
+      ) do
+    item = maybe_preload_item(item)
+    attrs = normalize_attrs_for_category(attrs, item.category)
+    effective_model_asset = resolve_asset_update(model_asset, item.model_asset)
+    effective_thumbnail_asset = resolve_asset_update(thumbnail_asset, item.thumbnail_asset)
+
+    with {:ok, {updated_item, owned_files_to_remove}} <-
+           Repo.transaction(fn ->
+             with {:ok, updated_item} <-
+                    item
+                    |> CatalogItem.changeset(account, effective_model_asset, effective_thumbnail_asset, attrs)
+                    |> Repo.update(),
+                  {:ok, model_owned_file} <-
+                    maybe_delete_replaced_asset(item.model_asset, updated_item.model_asset_id),
+                  {:ok, thumbnail_owned_file} <-
+                    maybe_delete_replaced_asset(item.thumbnail_asset, updated_item.thumbnail_asset_id) do
+               updated_item = Repo.preload(updated_item, @preloads)
+
+               owned_files_to_remove =
+                 [model_owned_file, thumbnail_owned_file]
+                 |> Enum.reject(&is_nil/1)
+                 |> Enum.uniq_by(& &1.owned_file_id)
+
+               {updated_item, owned_files_to_remove}
+             else
+               {:error, %Ecto.Changeset{} = changeset} -> Repo.rollback(changeset)
+               {:error, reason} -> Repo.rollback(reason)
+             end
+           end) do
+      Enum.each(owned_files_to_remove, &safe_remove_owned_file_blobs/1)
+      {:ok, updated_item}
+    end
   end
 
   def item_by_part_key(part_key) when is_binary(part_key) do
@@ -138,6 +180,32 @@ defmodule Ret.Composer.Catalog do
     CatalogAsset
     |> where([asset], asset.owned_file_id == ^owned_file_id)
     |> Repo.exists?()
+  end
+
+  defp resolve_asset_update(:keep, current_asset), do: current_asset
+  defp resolve_asset_update(asset, _current_asset), do: asset
+
+  defp normalize_attrs_for_category(attrs, current_category \\ nil) do
+    resolved_category = Map.get(attrs, :category, current_category)
+
+    if resolved_category == "accessory" do
+      attrs
+    else
+      Map.put(attrs, :conflict_group, nil)
+    end
+  end
+
+  defp maybe_delete_replaced_asset(nil, _current_asset_id), do: {:ok, nil}
+
+  defp maybe_delete_replaced_asset(
+         %CatalogAsset{composer_catalog_asset_id: previous_asset_id} = previous_asset,
+         current_asset_id
+       ) do
+    if previous_asset_id == current_asset_id do
+      {:ok, nil}
+    else
+      delete_unused_asset(previous_asset)
+    end
   end
 
   defp safe_remove_owned_file_blobs(%OwnedFile{} = owned_file) do
