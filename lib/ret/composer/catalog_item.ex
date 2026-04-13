@@ -62,12 +62,12 @@ defmodule Ret.Composer.CatalogItem do
       :thumbnail_asset_id,
       thumbnail_asset && thumbnail_asset.composer_catalog_asset_id
     )
-    |> put_assoc(:updated_by_account, actor)
+    |> put_change(:updated_by_account_id, actor.account_id)
     |> maybe_put_created_by_account(actor)
   end
 
   defp maybe_put_created_by_account(%Ecto.Changeset{data: %__MODULE__{composer_catalog_item_id: nil}} = changeset, actor) do
-    put_assoc(changeset, :created_by_account, actor)
+    put_change(changeset, :created_by_account_id, actor.account_id)
   end
 
   defp maybe_put_created_by_account(changeset, _actor), do: changeset
